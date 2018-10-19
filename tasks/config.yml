@@ -1,0 +1,47 @@
+---
+
+# - name: Disable SELinux on Boot
+#   selinux:
+#     state: disabled
+
+- name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
+  sysctl:
+    name: net.bridge.bridge-nf-call-ip6tables
+    value: 1
+    state: present
+  become: yes
+
+- name: ensure net.bridge.bridge-nf-call-iptables is set to 1
+  sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: 1
+    state: present
+  become: yes
+
+- name: Disable FirewallD
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: False
+  become: yes
+  when: ansible_distribution == "RedHat"
+
+- name: Remove swapfile from /etc/fstab
+  mount:
+    name: swap
+    fstype: swap
+    state: absent
+  become: yes
+
+- name: Disable swap
+  command: swapoff -a
+  become: yes
+  when: ansible_swaptotal_mb > 0
+
+
+- name: Create the configurations for Docker Daemon
+  template:
+    src: "docker.json.j2"
+    dest: "/etc/docker/daemon.json"
+  notify:
+    - restart docker

@@ -1,0 +1,109 @@
+---
+- name: Remove any default docker package
+  package: 
+    name: "{{ item }}"
+    state: absent
+  with_items: ["docker.io", "docker-engine"]
+
+- name: Update APT cache
+  apt: update_cache=yes
+  when: ansible_distribution == 'Debian'
+
+- name: Activate EPEL on RHEL
+  yum:
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    state: present
+  become: yes
+  when: ansible_distribution == 'RedHat'
+
+- name: Install basic packages on Debian
+  package: 
+    name: "{{ item }}"
+    state: latest
+  with_items: ["apt-transport-https", "ca-certificates", "curl", "gnupg2", "software-properties-common", "python3-apt", "python3-selinux", "git"]
+  when: ansible_distribution == 'Debian'
+
+- name: Install basic packages on RHEL
+  package: 
+    name: "{{ item }}"
+    state: latest
+  with_items: ["curl", "gnupg2", "git", "yum-utils", "device-mapper-persistent-data", "lvm2"]
+  become: yes
+  when: ansible_distribution == 'RedHat'
+
+- name: Install ZSH shell
+  package:
+    name: zsh
+    state: present
+  become: yes
+  register: zsh_install
+
+- name: Install apt Keys
+  apt_key:
+    url: "{{ item }}"
+    state: present
+  with_items: [ "https://download.docker.com/linux/debian/gpg", "https://packages.cloud.google.com/apt/doc/apt-key.gpg" ]
+  when: ansible_distribution == 'Debian'
+
+- name: Add APT official docker repository
+  apt_repository:
+    repo: deb https://download.docker.com/linux/debian/ stretch stable
+    state: present
+    update_cache: true
+  when: ansible_distribution == 'Debian'
+
+- name: Add YUM official docker repository
+  yum_repository:
+    baseurl: https://download.docker.com/linux/centos/7/$basearch/stable
+    description: Docker CE Repo
+    gpgkey: https://download.docker.com/linux/centos/gpg
+    gpgcheck: True
+    name: docker-ce-stabe
+  become: yes
+  when: ansible_distribution == 'RedHat'
+
+- name: Enable repository RHEL-7-EXTRA-RPMS RHEL
+  become: yes
+  rhsm_repository:
+    name: rhel-7-server-extras-rpms
+  when: ansible_distribution == 'RedHat'
+
+- name: Add official kubernetes repository on Debian
+  apt_repository:
+    repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+    state: present
+    update_cache: true
+  when: ansible_distribution == 'Debian'
+
+- name: Add official kubernetes repository on RHEL
+  become: yes
+  yum_repository:
+    name: kubernetes
+    baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+    gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    gpgcheck: True
+    description: Kubernetes repository
+  when: ansible_distribution == 'RedHat'
+
+- name: Install required packages
+  package: 
+    name: "{{ item }}"
+    state: latest
+  become: yes
+  with_items: ["docker-ce", "kubelet", "kubeadm"]
+
+- name: Enable Docker service
+  become: yes
+  systemd:
+    name: docker
+    state: started
+    enabled: True
+
+- name: Enable kubelet service
+  become: yes
+  systemd:
+    name: kubelet
+    state: started
+    enabled: True
+
+

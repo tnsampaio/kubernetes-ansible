@@ -1,0 +1,26 @@
+---
+
+- name: Wipe out kubernetes conf
+  file:
+    path: ~/.newway_kubeadm_joined.txt
+    state: absent
+  become: yes
+  when: clean_install==True
+
+- name: Wipe out any previous configuration on Kubernetes
+  shell: kubeadm reset -f
+  become: yes
+  when: clean_install == True
+
+
+- debug:
+    msg: "join command: {{ hostvars['master-01'].join_command }}" 
+
+
+- name: Join node on master
+  shell: "{{ hostvars['master-01'].join_command }} >> .newway_kubeadm_joined.txt"
+  args:
+    chdir: $HOME
+    creates: .newway_kubeadm_joined.txt
+  become: yes
+  when: kubernetes_multimaster == False

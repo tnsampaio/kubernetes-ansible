@@ -1,0 +1,18 @@
+---
+
+cluster_name: newway
+
+pod_network: 192.168.0.0/16
+
+admuser: admnw
+
+kubernetes_multimaster: False
+principal: False
+
+#this is meant to be used while developing the code and is not suposed to be enabled on 
+#production since this whill wipe out ANY cluster configuration.
+#use with caution
+
+clean_install: False
+
+dockerd_custom_configs: {}

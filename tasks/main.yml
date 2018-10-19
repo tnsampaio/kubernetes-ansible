@@ -1,0 +1,15 @@
+---
+
+
+- debug:
+    msg: "Executing recipe on {{ ansible_distribution }} distribution"
+
+
+- include_tasks: packages.yml
+- include_tasks: config.yml
+
+- include_tasks: master_config.yml
+  when: master
+
+- include_tasks: node_config.yml
+  when: master == False

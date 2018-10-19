@@ -1,0 +1,210 @@
+---
+
+- name: Create normal user to manage Kubernetes
+  user:
+    name: "{{ admuser }}"
+    comment: Kubertnetes Admin
+    group: docker
+    shell: /bin/zsh
+  become: yes
+
+- name: Create SSH dir
+  file:
+    path: ~/.ssh
+    state: directory
+    mode: 0700
+  become: yes
+  become_user: "{{ admuser }}"
+
+- name: SSH keys allowed to login to kubeadm user
+  copy:
+    dest: ~/.ssh/authorized_keys
+    src: files/allowed_ssh_keys
+    mode: 0600
+  become: yes
+  become_user: "{{ admuser }}"
+
+- name: Backing up existing ~/.zshrc
+  shell: if [ -f ~/.zshrc ]; then mv ~/.zshrc.old; fi
+  become: yes
+  become_user: "{{ admuser }}" 
+  when: zsh_install.changed
+
+- name: Cloning oh-my-zsh
+  git:
+    repo=https://github.com/robbyrussell/oh-my-zsh
+    dest=~/.oh-my-zsh
+  register: cloning
+  become: yes
+  become_user: "{{ admuser }}"
+  when: zsh_install.changed
+
+- name: Creating new ~/.zshrc
+  copy:
+    src=~/.oh-my-zsh/templates/zshrc.zsh-template
+    dest=~/.zshrc
+  become: yes
+  become_user: "{{ admuser }}"
+  when: zsh_install.changed
+
+- name: Install kubeadm package
+  package: 
+    name: kubeadm
+    state: latest
+  become: yes
+
+- name: Wipe out any previous configuration on Kubernetes
+  shell: kubeadm reset -f
+  become: yes
+  when: clean_install == True
+
+- name: Wipe out configuration 
+  become: yes
+  file:
+    path: ~/.newway_cluster_initialized.txt
+    state: absent
+  when: clean_install==True
+
+- name: Initialize the Kubernets cluster
+  shell: kubeadm init --pod-network-cidr={{pod_network}} >> .newway_cluster_initialized.txt
+  args:
+    chdir: ${HOME}
+    creates: .newway_cluster_initialized.txt
+  become: yes
+  when: kubernetes_multimaster == False
+
+- name: Generate kubernetes file for principal node
+  template: 
+    src: create_cluster.yml.j2 
+    dest: /tmp/kubernetes.yml
+  when: 
+    - principal == True 
+    - kubernetes_multimaster == True
+
+- name: Initialize the cluster on principal node
+  shell: kubeadm init --config /tmp/kubernetes.yml > .cluster.creation.log
+  args:
+    chdir: ${HOME}
+    creates: .cluster_creation.log
+  when: 
+    - principal == True 
+    - kubernetes_multimaster == True
+
+- name: Create .kube directory
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: ~/.kube
+    state: directory
+    mode: 0755
+
+- name: Copy admin.conf to kubeadm user environment
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "~{{ admuser }}/.kube/config"
+    remote_src: true
+    owner: "{{ admuser }}"
+  become: yes
+
+- name: Wipe out RBAC
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: .newway_pod_network_setup_rbac.txt
+    state: absent
+  when: clean_install==True
+
+- name: Install pod network | RBAC
+  become: yes
+  become_user: "{{ admuser }}"
+  shell: kubectl apply -f https://docs.projectcalico.org/v3.2/getting-started/kubernetes/installation/hosted/rbac-kdd.yaml >> .newway_pod_network_setup_rbac.txt
+  args:
+    chdir: $HOME
+    creates: ~/.newway_pod_network_setup_rbac.txt
+
+- name: Wipe out Calico 
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: .newway_pod_network_setup_calico.txt
+    state: absent
+  when: clean_install==True
+
+- name: Install pod network | Calico
+  become: yes
+  become_user: "{{ admuser }}"
+  shell: kubectl apply -f https://docs.projectcalico.org/v3.2/getting-started/kubernetes/installation/hosted/kubernetes-datastore/calico-networking/1.7/calico.yaml >> .newway_pod_network_setup_calico.txt
+  args:
+    chdir: $HOME
+    creates: .newway_pod_network_setup_calico.txt
+
+- name: Generate Join command
+  become: true
+  become_user: "{{ admuser }}"
+  shell: kubeadm token create --print-join-command
+  register: join_command_raw
+
+- name: Export the join command to be used on nodes
+  set_fact:
+    join_command: "{{ join_command_raw.stdout_lines[0] }}"
+
+- name: Wipe out Dashboard config
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: .newway_kubernetes_dashboard.txt
+    state: absent
+  when: clean_install==True
+
+- name: Install pod Dashboard
+  become: yes
+  become_user: "{{ admuser }}"
+  shell: kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml >> .newway_kubernetes_dashboard.txt
+  args:
+    chdir: $HOME
+    creates: ~/.newway_kubernetes_dashboard.txt
+
+- name: Wipe out Dashboard config - service account
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: .newway_kubernetes_dashboard_serviceaccount.txt
+    state: absent
+  when: clean_install==True
+
+- name: Install pod Dashboard
+  become: yes
+  become_user: "{{ admuser }}"
+  shell: kubectl create serviceaccount cluster-admin-dashboard-sa >> .newway_kubernetes_dashboard_serviceaccount.txt
+  args:
+    chdir: $HOME
+    creates: .newway_kubernetes_dashboard_serviceaccount.txt
+
+- name: Wipe out Dashboard config - Cluster Role
+  become: yes
+  become_user: "{{ admuser }}"
+  file:
+    path: .newway_kubernetes_dashboard_clusterrole.txt
+    state: absent
+  when: clean_install==True
+
+- name: Install pod Dashboard - Cluster Role
+  become: yes
+  become_user: "{{ admuser }}"
+  shell: kubectl create clusterrolebinding cluster-admin-dashboard-sa --clusterrole=cluster-admin --serviceaccount=default:cluster-admin-dashboard-sa >> .newway_kubernetes_dashboard_clusterrole.txt
+  args:
+    chdir: $HOME
+    creates: .newway_kubernetes_dashboard_clusterrole.txt
+  
+- name: Get token for dashboard
+  become: true
+  become_user: "{{ admuser }}"
+  shell: kubectl describe secret $(kubectl get secret | grep cluster-admin-dashboard-sa | cut -f 1 -d " ") | awk '$1=="token:"{print $2}'
+  register: dashboard_token_raw
+
+- name: Export the token for dashboard access
+  set_fact:
+    dashboard_token: "{{ dashboard_token_raw.stdout_lines[0] }}"
+
+- debug: 
+    msg: "Dashboard token: {{ dashboard_token}}"
