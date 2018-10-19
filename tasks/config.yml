@@ -40,6 +40,7 @@
 
 
 - name: Create the configurations for Docker Daemon
+  become: yes
   template:
     src: "docker.json.j2"
     dest: "/etc/docker/daemon.json"
